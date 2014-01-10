@@ -86,6 +86,8 @@ my $TRAY;
 my %OBJ;
 my $CONN;
 
+our $INDIC;
+
 my $DESKTOP = '[Desktop Entry]
 Name=Network Connect
 Comment=MadScientist Juniper Network Connect Session Manager
@@ -2035,9 +2037,6 @@ sub get_passwd_tty {
 
 # --------------- MAIN
 
-# Get the various pathnames we'll expect.  Note they may not exist yet!
-setpaths();
-
 # Parse the command line
 GetOptions(\%OPTS,
            'help|h|?' => sub { Getopt::Long::HelpMessage(); },
@@ -2168,6 +2167,35 @@ my $t = Glib::Timeout->add(1 * 1000, \&window_update, undef);
 Gtk2->main();
 
 exit(0);
+
+# attempt at optional use of Gtk2::AppIndicator 
+BEGIN {
+  use Gtk2 -init;
+  # Get the various pathnames we'll expect.  Note they may not exist yet!
+  setpaths();
+  eval {
+    #separate out the two steps of 'use' - otherwise this
+    #happens at compile time. 
+    require Gtk2::AppIndicator;
+    Gtk2::AppIndicator->import();
+  };
+  if ($@){ #check for an error in previous eval{}
+  } else {
+    $INDIC = Gtk2::AppIndicator->new("MSJNC",$JNCICON);
+    my $menu=Gtk2::Menu->new();
+    my $status=Gtk2::MenuItem->new_with_mnemonic("_Status");
+    my $connect=Gtk2::MenuItem->new_with_mnemonic("_Connect");
+    my $quit=Gtk2::MenuItem->new_with_mnemonic("_Quit");
+    $quit->signal_connect("activate",sub { window_delete() or Gtk2->main_quit(); } );
+    $connect->signal_connect("activate",sub { window_dis_connect(); });
+    $menu->append($connect);
+    $menu->append($status);
+    $menu->append($quit);
+    $menu->show_all();
+    $INDIC->set_menu($menu);
+    $INDIC->set_active(1);
+  }
+}
 
 =head1 NAME
 
