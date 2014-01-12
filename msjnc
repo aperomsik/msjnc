@@ -54,9 +54,10 @@ use LWP::Simple;
 
 # Get graphics
 use Glib;
-use Gtk2;
+use Gtk2 -init;
 use Gtk2::SimpleMenu;
 use Gtk2::Pango;
+use Gtk2::AppIndicator;
 
 # For debug
 use Data::Dumper;
@@ -85,8 +86,7 @@ my $WIN;
 my $TRAY;
 my %OBJ;
 my $CONN;
-
-our $INDIC;
+my $INDIC;
 
 my $DESKTOP = '[Desktop Entry]
 Name=Network Connect
@@ -1655,6 +1655,32 @@ sub window_manage {
     return window_edit($pfn);
 }
 
+sub indicator_create {
+    $INDIC = Gtk2::AppIndicator->new("MSJNC",$JNCICON);
+    my $menu=Gtk2::Menu->new();
+    my $status=Gtk2::MenuItem->new_with_mnemonic("_Status");
+    my $connect=Gtk2::MenuItem->new_with_mnemonic("_Connect");
+    my $quit=Gtk2::MenuItem->new_with_mnemonic("_Quit");
+    $quit->signal_connect("activate",sub { window_delete() or Gtk2->main_quit(); } );
+    $status->signal_connect("activate",sub { $WIN->show(); } );
+    $connect->signal_connect("activate",sub { window_dis_connect(); });
+    $menu->append($connect);
+    $menu->append($status);
+    $menu->append($quit);
+    $menu->show_all();
+    $INDIC->set_menu($menu);
+    $INDIC->set_active(1);
+    $WIN->hide();
+}
+
+sub window_wm_close_event {
+    if (defined $INDIC) {
+        $WIN->hide();
+        return 1;
+    }
+    return window_delete();
+}
+
 sub window_create {
     my $window = Gtk2::Window->new('toplevel');
     $window->set_border_width(10);
@@ -1662,7 +1688,7 @@ sub window_create {
     $window->set_default_icon_from_file($JNCICON);
 
     # Handle WM delete events
-    $window->signal_connect(delete_event => \&window_delete);
+    $window->signal_connect(delete_event => \&window_wm_close_event);
     $window->signal_connect(destroy => sub { Gtk2->main_quit(); });
 
     # Create a vbox to hold the window content
@@ -1787,9 +1813,13 @@ sub window_create {
     $tray->set_tooltip("MS-JNC");
     $tray->signal_connect('activate', \&tray_icon_event);
     $TRAY = $tray;
-
     $window->show_all();
     $WIN = $window;
+
+    if (! $tray->is_embedded) {
+        # system tray not supported; try Unity app indicator
+        indicator_create();
+    }
 
     return $window;
 }
@@ -2037,6 +2067,9 @@ sub get_passwd_tty {
 
 # --------------- MAIN
 
+# Get the various pathnames we'll expect.  Note they may not exist yet!
+setpaths();
+
 # Parse the command line
 GetOptions(\%OPTS,
            'help|h|?' => sub { Getopt::Long::HelpMessage(); },
@@ -2120,9 +2153,6 @@ if ($OPTS{connect}) {
     die "The Juniper Network Connect VPN session did not start.\n";
 }
 
-# If we get here we're going to start a graphical session so init GTK
-# Do this before forking, so DISPLAY errors are caught early.
-Gtk2->init();
 
 # If we want to run in the background, do that now
 if (! $OPTS{fg}) {
@@ -2138,11 +2168,11 @@ if (! $OPTS{fg}) {
 
     # In the child, redirect IO since we're in the background
     # Closing these instead has unpleasant side-effects later
-    open(my $N, '>', '/dev/null');
-    open(STDOUT, '>&', $N);
-    open(STDERR, '>&', $N);
-    open(STDIN, '<&', $N);
-    close($N);
+#     open(my $N, '>', '/dev/null');
+#     open(STDOUT, '>&', $N);
+#     open(STDERR, '>&', $N);
+#     open(STDIN, '<&', $N);
+#     close($N);
 }
 
 $log->("Started graphical session with PID $$");
@@ -2167,35 +2197,6 @@ my $t = Glib::Timeout->add(1 * 1000, \&window_update, undef);
 Gtk2->main();
 
 exit(0);
-
-# attempt at optional use of Gtk2::AppIndicator 
-BEGIN {
-  use Gtk2 -init;
-  # Get the various pathnames we'll expect.  Note they may not exist yet!
-  setpaths();
-  eval {
-    #separate out the two steps of 'use' - otherwise this
-    #happens at compile time. 
-    require Gtk2::AppIndicator;
-    Gtk2::AppIndicator->import();
-  };
-  if ($@){ #check for an error in previous eval{}
-  } else {
-    $INDIC = Gtk2::AppIndicator->new("MSJNC",$JNCICON);
-    my $menu=Gtk2::Menu->new();
-    my $status=Gtk2::MenuItem->new_with_mnemonic("_Status");
-    my $connect=Gtk2::MenuItem->new_with_mnemonic("_Connect");
-    my $quit=Gtk2::MenuItem->new_with_mnemonic("_Quit");
-    $quit->signal_connect("activate",sub { window_delete() or Gtk2->main_quit(); } );
-    $connect->signal_connect("activate",sub { window_dis_connect(); });
-    $menu->append($connect);
-    $menu->append($status);
-    $menu->append($quit);
-    $menu->show_all();
-    $INDIC->set_menu($menu);
-    $INDIC->set_active(1);
-  }
-}
 
 =head1 NAME
 
